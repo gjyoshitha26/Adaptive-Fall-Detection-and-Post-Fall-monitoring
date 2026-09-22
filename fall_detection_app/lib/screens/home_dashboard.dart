@@ -65,55 +65,74 @@ class HomeDashboard extends StatelessWidget {
                   ],
                 ),
                 const Text(
-                  'Trigger a simulated fall event to test real-time alerts, push notifications, and caregiver response UI.',
+                  'Trigger a simulated TinyML pipeline event to test cloud synchronization, push notifications, and caregiver response UI.',
                   style: TextStyle(color: Colors.grey, fontSize: 13),
                 ),
                 const SizedBox(height: 16),
                 ListTile(
                   leading: const CircleAvatar(
                     backgroundColor: Color(0xFFFFEBEE),
-                    child: Icon(Icons.warning, color: Colors.red),
+                    child: Icon(Icons.emergency_rounded, color: Colors.red),
                   ),
-                  title: const Text('Simulate Severe Fall (Unresponsive)'),
-                  subtitle: const Text('Severity: Severe | Motion: Still (No recovery)'),
+                  title: const Text('CRITICAL: Syncope / Collapse from Rest'),
+                  subtitle: const Text('Activity: SLEEP | Triage: CRITICAL | Impact: 3.9g | FRA: Severe'),
                   onTap: () {
                     Navigator.pop(ctx);
                     context.read<FallDetectionProvider>().simulateFallEvent(
                           severity: 'Severe',
+                          triage: 'CRITICAL',
+                          activity: 'SLEEP',
                           still: true,
-                          location: 'Bathroom / Hallway',
+                          fallHeightM: 0.92,
+                          peakG: 3.9,
+                          fraLevel: 'Severe',
+                          cfss7: 86.4,
+                          sleepStatus: 'COLLAPSE_FROM_REST_SUSPECTED_SYNCOPE',
+                          location: 'Bedroom',
                         );
                   },
                 ),
                 ListTile(
                   leading: const CircleAvatar(
                     backgroundColor: Color(0xFFFFF3E0),
-                    child: Icon(Icons.report_problem, color: Colors.orange),
+                    child: Icon(Icons.warning_amber_rounded, color: Colors.deepOrange),
                   ),
-                  title: const Text('Simulate Moderate Fall (Recovered)'),
-                  subtitle: const Text('Severity: Moderate | Motion: Movement detected'),
+                  title: const Text('HIGH: Fall Down Stairs'),
+                  subtitle: const Text('Activity: STAIRS | Triage: HIGH | Height: 1.15m | FRA: High'),
                   onTap: () {
                     Navigator.pop(ctx);
                     context.read<FallDetectionProvider>().simulateFallEvent(
                           severity: 'Moderate',
+                          triage: 'HIGH',
+                          activity: 'STAIRS',
                           still: false,
-                          location: 'Kitchen',
+                          fallHeightM: 1.15,
+                          peakG: 4.1,
+                          fraLevel: 'High',
+                          cfss7: 68.2,
+                          location: 'Staircase',
                         );
                   },
                 ),
                 ListTile(
                   leading: const CircleAvatar(
                     backgroundColor: Color(0xFFFFFDE7),
-                    child: Icon(Icons.info, color: Colors.amber),
+                    child: Icon(Icons.visibility_outlined, color: Colors.amber),
                   ),
-                  title: const Text('Simulate Mild Trip / Stumble'),
-                  subtitle: const Text('Severity: Mild | Motion: Normal gait recovered'),
+                  title: const Text('WATCH: Near-Fall Stumble / Trip'),
+                  subtitle: const Text('Activity: WALK | Triage: WATCH | Height: 0.28m | Gait Recovered'),
                   onTap: () {
                     Navigator.pop(ctx);
                     context.read<FallDetectionProvider>().simulateFallEvent(
                           severity: 'Mild',
+                          triage: 'WATCH',
+                          activity: 'WALK',
                           still: false,
-                          location: 'Bedroom',
+                          fallHeightM: 0.28,
+                          peakG: 1.7,
+                          fraLevel: 'Low',
+                          cfss7: 32.0,
+                          location: 'Garden Walkway',
                         );
                   },
                 ),
@@ -411,12 +430,12 @@ class HomeDashboard extends StatelessWidget {
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: latest.severityColor.withValues(alpha: 0.5),
-                      width: 1.5,
+                      color: latest.triageColor.withValues(alpha: 0.6),
+                      width: 1.8,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: latest.severityColor.withValues(alpha: 0.12),
+                        color: latest.triageColor.withValues(alpha: 0.12),
                         blurRadius: 14,
                         offset: const Offset(0, 4),
                       ),
@@ -431,19 +450,19 @@ class HomeDashboard extends StatelessWidget {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
-                              color: latest.severityColor.withValues(alpha: 0.15),
+                              color: latest.triageColor.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Row(
                               children: [
-                                Icon(latest.severityIcon, size: 16, color: latest.severityColor),
+                                Icon(latest.triageIcon, size: 16, color: latest.triageColor),
                                 const SizedBox(width: 5),
                                 Text(
-                                  '${latest.severity.toUpperCase()} FALL',
+                                  '${latest.triage} PRIORITY (${latest.activity})',
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
-                                    color: latest.severityColor,
+                                    color: latest.triageColor,
                                   ),
                                 ),
                               ],
@@ -461,7 +480,7 @@ class HomeDashboard extends StatelessWidget {
                           Icon(
                             latest.still ? Icons.person_off_rounded : Icons.directions_walk_rounded,
                             color: latest.still ? Colors.red : Colors.green,
-                            size: 24,
+                            size: 26,
                           ),
                           const SizedBox(width: 10),
                           Expanded(
@@ -478,10 +497,19 @@ class HomeDashboard extends StatelessWidget {
                                     color: latest.still ? Colors.red.shade900 : Colors.green.shade900,
                                   ),
                                 ),
+                                const SizedBox(height: 2),
                                 Text(
-                                  'Location: ${latest.location} • Battery at event: ${latest.battery}%',
-                                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                  'Height: ${latest.fallHeightM.toStringAsFixed(2)}m • Impact: ${latest.peakG.toStringAsFixed(1)}g • Fracture: ${latest.fraLevel}',
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.blueGrey.shade800),
                                 ),
+                                if (latest.sleepStatus != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 2.0),
+                                    child: Text(
+                                      'Suspected Syncope / Fainting Collapse',
+                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.red.shade700),
+                                    ),
+                                  ),
                               ],
                             ),
                           ),

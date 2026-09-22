@@ -28,7 +28,7 @@ class AlertDetailScreen extends StatelessWidget {
       scheme: 'sms',
       path: phone,
       queryParameters: {
-        'body': 'Are you okay? Fall alert received from your wearable device at ${DateFormat('hh:mm a').format(fallEvent.timestamp)}.'
+        'body': 'Emergency Check: [${fallEvent.triage} Alert] Activity: ${fallEvent.activity}. Fall detected at ${DateFormat('hh:mm a').format(fallEvent.timestamp)}. Are you okay?'
       },
     );
     if (await canLaunchUrl(smsUri)) {
@@ -52,7 +52,7 @@ class AlertDetailScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text('Incident Breakdown', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('Clinical Incident Breakdown', style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xFF1E293B),
         elevation: 0,
       ),
@@ -61,35 +61,36 @@ class AlertDetailScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Prominent Severity Banner Card
+            // Prominent Triage Banner Card
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: fallEvent.severityColor.withValues(alpha: 0.1),
+                color: fallEvent.triageColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: fallEvent.severityColor, width: 2),
+                border: Border.all(color: fallEvent.triageColor, width: 2),
               ),
               child: Column(
                 children: [
                   CircleAvatar(
-                    backgroundColor: fallEvent.severityColor,
+                    backgroundColor: fallEvent.triageColor,
                     radius: 30,
-                    child: Icon(fallEvent.severityIcon, color: Colors.white, size: 36),
+                    child: Icon(fallEvent.triageIcon, color: Colors.white, size: 36),
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    '${fallEvent.severity.toUpperCase()} FALL DETECTED',
+                    '${fallEvent.triage} PRIORITY TRIAGE',
                     style: TextStyle(
-                      fontSize: 20,
+                      fontSize: 22,
                       fontWeight: FontWeight.bold,
-                      color: fallEvent.severityColor,
+                      color: fallEvent.triageColor,
+                      letterSpacing: 0.5,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     fallEvent.still
-                        ? 'CRITICAL: No movement detected post-impact'
+                        ? 'CRITICAL ALERT: Senior is unmoving post-impact'
                         : 'NOTICE: Subject regained motion post-impact',
                     style: TextStyle(
                       fontSize: 13,
@@ -97,6 +98,68 @@ class AlertDetailScreen extends StatelessWidget {
                       color: fallEvent.still ? Colors.red.shade900 : Colors.green.shade900,
                     ),
                   ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // TinyML Clinical Risk & Physics Grid
+            const Text(
+              'TinyML Signal Physics & Risk Analysis',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: Column(
+                children: [
+                  _detailRow(
+                    icon: Icons.directions_walk_rounded,
+                    title: 'Pre-Impact Activity',
+                    value: fallEvent.activity,
+                    valueColor: const Color(0xFF0F172A),
+                  ),
+                  const Divider(height: 1),
+                  _detailRow(
+                    icon: Icons.height_rounded,
+                    title: 'Fall Height Estimation (h)',
+                    value: '${fallEvent.fallHeightM.toStringAsFixed(2)} meters',
+                  ),
+                  const Divider(height: 1),
+                  _detailRow(
+                    icon: Icons.speed_rounded,
+                    title: 'Peak Impact Acceleration',
+                    value: '${fallEvent.peakG.toStringAsFixed(2)} g',
+                    valueColor: fallEvent.peakG > 3.0 ? Colors.red : Colors.blueGrey.shade800,
+                  ),
+                  const Divider(height: 1),
+                  _detailRow(
+                    icon: Icons.medical_services_outlined,
+                    title: 'Fracture Risk Analysis (FRA)',
+                    value: fallEvent.fraLevel,
+                    valueColor: fallEvent.fraLevel == 'Severe' || fallEvent.fraLevel == 'High'
+                        ? Colors.red
+                        : Colors.green.shade800,
+                  ),
+                  const Divider(height: 1),
+                  _detailRow(
+                    icon: Icons.analytics_outlined,
+                    title: 'Composite Severity Score (CFSS-7)',
+                    value: '${fallEvent.cfss7.toStringAsFixed(1)} / 100',
+                  ),
+                  if (fallEvent.sleepStatus != null) ...[
+                    const Divider(height: 1),
+                    _detailRow(
+                      icon: Icons.bedtime_outlined,
+                      title: 'Sleep/Syncope Diagnosis',
+                      value: fallEvent.sleepStatus!,
+                      valueColor: Colors.red.shade800,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -217,7 +280,7 @@ class AlertDetailScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Recommended Protocol',
+                          'Clinical Triage Protocol',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: Colors.amber.shade900,
@@ -225,9 +288,11 @@ class AlertDetailScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          fallEvent.still
-                              ? '1. Call the senior immediately.\n2. If no response within 60 seconds, notify local emergency services or neighbor.\n3. Keep calm and dispatch assistance.'
-                              : '1. Check in to ensure no dizziness or fracture.\n2. Confirm the senior is comfortable and hydrated.',
+                          fallEvent.triage == 'CRITICAL'
+                              ? '1. Call the senior immediately.\n2. If no response within 60s, dispatch ambulance / emergency team due to high impact (${fallEvent.peakG}g) and unresponsiveness.\n3. Suspected syncope requires immediate vital signs evaluation.'
+                              : fallEvent.triage == 'HIGH'
+                                  ? '1. High impact from ${fallEvent.activity} (${fallEvent.peakG}g). Verify for fractures (${fallEvent.fraLevel} Risk).\n2. Confirm subject is seated safely.'
+                                  : '1. Near-fall stumble detected. Check for tripping hazards or sudden weakness.',
                           style: TextStyle(fontSize: 12, color: Colors.amber.shade900, height: 1.4),
                         ),
                       ],

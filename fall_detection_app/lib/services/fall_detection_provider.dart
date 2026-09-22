@@ -60,28 +60,50 @@ class FallDetectionProvider extends ChangeNotifier {
         id: 'mock_1',
         deviceId: _deviceId,
         timestamp: now.subtract(const Duration(minutes: 8)),
+        type: 'Fall',
         severity: 'Severe',
+        triage: 'CRITICAL',
+        activity: 'SLEEP',
         still: true,
         battery: 82,
         location: 'Bedroom',
+        fallHeightM: 0.92,
+        peakG: 3.9,
+        fraLevel: 'Severe',
+        cfss7: 86.4,
+        sleepStatus: 'COLLAPSE_FROM_REST_SUSPECTED_SYNCOPE',
       ),
       FallEvent(
         id: 'mock_2',
         deviceId: _deviceId,
         timestamp: now.subtract(const Duration(hours: 3, minutes: 24)),
+        type: 'Fall',
         severity: 'Moderate',
+        triage: 'HIGH',
+        activity: 'STAIRS',
         still: false,
         battery: 88,
-        location: 'Living Room',
+        location: 'Staircase',
+        fallHeightM: 1.15,
+        peakG: 4.1,
+        fraLevel: 'High',
+        cfss7: 68.2,
       ),
       FallEvent(
         id: 'mock_3',
         deviceId: _deviceId,
         timestamp: now.subtract(const Duration(days: 1, hours: 5)),
+        type: 'Near-Fall',
         severity: 'Mild',
+        triage: 'WATCH',
+        activity: 'WALK',
         still: false,
         battery: 94,
         location: 'Garden Walkway',
+        fallHeightM: 0.28,
+        peakG: 1.7,
+        fraLevel: 'Low',
+        cfss7: 32.0,
       ),
     ];
     notifyListeners();
@@ -159,27 +181,44 @@ class FallDetectionProvider extends ChangeNotifier {
   }
 
   void _onNewFallDetected(FallEvent fall) {
+    final title = "🚨 [${fall.triage} PRIORITY] ${fall.activity} Fall Alert!";
+    final body = "${fall.still ? 'PERSON UNRESPONSIVE' : 'Movement detected'} | Height: ${fall.fallHeightM.toStringAsFixed(2)}m | Impact: ${fall.peakG.toStringAsFixed(1)}g | Fracture Risk: ${fall.fraLevel}";
+
     _notificationService.showFallAlertNotification(
-      title: "🚨 EMERGENCY: Fall Detected!",
-      body: "Severity: ${fall.severity} | Post-fall: ${fall.still ? 'Still (Unresponsive)' : 'Movement detected'}",
+      title: title,
+      body: body,
       payload: fall.id,
     );
   }
 
-  // Simulation Trigger: simulate a fall event directly from the app or testing
+  // Simulation Trigger: simulate a pipeline fall event
   void simulateFallEvent({
     required String severity,
     required bool still,
-    String location = 'Hallway',
+    String triage = 'HIGH',
+    String activity = 'WALK',
+    double fallHeightM = 0.85,
+    double peakG = 3.4,
+    String fraLevel = 'Moderate',
+    double cfss7 = 64.0,
+    String? sleepStatus,
+    String location = 'Living Room',
   }) {
     final event = FallEvent(
       id: 'sim_${DateTime.now().millisecondsSinceEpoch}',
       deviceId: _deviceId,
       timestamp: DateTime.now(),
       severity: severity,
+      triage: triage,
+      activity: activity,
       still: still,
       battery: _deviceStatus.battery,
       location: location,
+      fallHeightM: fallHeightM,
+      peakG: peakG,
+      fraLevel: fraLevel,
+      cfss7: cfss7,
+      sleepStatus: sleepStatus,
     );
 
     _fallHistory.insert(0, event);

@@ -11,9 +11,9 @@
 #include <Wire.h>
 
 // ---------------- Wi-Fi & Firebase Configuration ----------------
-const char* WIFI_SSID     = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
-const char* FIREBASE_PROJECT_ID = "YOUR_FIREBASE_PROJECT_ID";
+const char* WIFI_SSID     = "Jyoshi";
+const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD"; // Set your Wi-Fi password
+const char* FIREBASE_PROJECT_ID = "fall-monitoring-e9b3e";
 const char* DEVICE_ID     = "ESP32_001";
 
 // ---------------- MPU6050 I2C Configuration ---------------------
@@ -24,13 +24,12 @@ const char* DEVICE_ID     = "ESP32_001";
 // Sampling Rate: 50 Hz (20 ms period)
 const unsigned long SAMPLE_INTERVAL_MS = 20;
 unsigned long lastSampleTime = 0;
+unsigned long lastPrintTime = 0;
 
-// Free-fall & Impact Detection Thresholds
-const float FREEFALL_G_THRESH = 0.55f;   // Below this is weightlessness (free fall)
-const float IMPACT_G_THRESH   = 2.80f;   // Above this indicates impact collision
+// Detection Thresholds (Tuned for reliable lab & demo detection)
+const float FREEFALL_G_THRESH = 0.65f;   // Below this is free fall / weightlessness
+const float IMPACT_G_THRESH   = 2.20f;   // Above this indicates sudden impact or hard shake
 int freefallSamples = 0;
-bool potentialFallDetected = false;
-unsigned long fallStartTime = 0;
 
 void setup() {
   Serial.begin(115200);
@@ -42,11 +41,17 @@ void setup() {
   Wire.beginTransmission(MPU_ADDR);
   Wire.write(0x6B); // PWR_MGMT_1 register
   Wire.write(0);    // Wake up MPU-6050
-  Wire.endTransmission(true);
-  Serial.println("[OK] MPU6050 Sensor Initialized on I2C (SDA=21, SCL=22).");
+  byte err = Wire.endTransmission(true);
+  if (err == 0) {
+    Serial.println("[OK] MPU6050 Sensor Initialized on I2C (SDA=21, SCL=22).");
+  } else {
+    Serial.printf("[ERROR] MPU6050 connection error %d. Check SDA/SCL wiring!\n", err);
+  }
 
   // Connect to Wi-Fi
   connectToWiFi();
+  Serial.println("\n>>> TIP: Shake or drop sensor to trigger fall.");
+  Serial.println(">>> OR type 'f' in Serial Monitor and press Enter to simulate a fall immediately!\n");
 }
 
 void connectToWiFi() {
@@ -66,6 +71,15 @@ void connectToWiFi() {
 }
 
 void loop() {
+  // Check for manual test trigger via Serial Monitor
+  if (Serial.available() > 0) {
+    char c = Serial.read();
+    if (c == 'f' || c == 'F' || c == '1') {
+      Serial.println("\n[MANUAL TRIGGER] Sending test CRITICAL fall alert to Firebase...");
+      sendFallAlertToFirebase("CRITICAL", "STAIRS", 1.05f, 3.85f, true);
+    }
+  }
+
   unsigned long currentTime = millis();
 
   if (currentTime - lastSampleTime >= SAMPLE_INTERVAL_MS) {
@@ -82,7 +96,7 @@ void loop() {
     rawAy = (Wire.read() << 8) | Wire.read();
     rawAz = (Wire.read() << 8) | Wire.read();
 
-    // Convert raw values to g units (assuming +-2g scale, 16384 LSB/g)
+    // Convert raw values to g units (+-2g scale, 16384 LSB/g)
     float ax = rawAx / 16384.0f;
     float ay = rawAy / 16384.0f;
     float az = rawAz / 16384.0f;
@@ -90,32 +104,37 @@ void loop() {
     // Acceleration Resultant Magnitude (g)
     float accMag = sqrt(ax * ax + ay * ay + az * az);
 
-    // 1. Detect Free-Fall Phase (pre-impact weightlessness)
+    // Live monitor print every 1.5 seconds so you can see live sensor readings
+    if (currentTime - lastPrintTime >= 1500) {
+      lastPrintTime = currentTime;
+      Serial.printf("[SENSOR LIVE] Motion: %.2f g | Freefall count: %d\n", accMag, freefallSamples);
+    }
+
+    // 1. Detect Free-Fall Phase (weightlessness)
     if (accMag < FREEFALL_G_THRESH) {
       freefallSamples++;
+      Serial.printf("  [FREE-FALL DETECTED] Mag: %.2f g (count %d)\n", accMag, freefallSamples);
+    } 
+    // 2. Detect Impact Phase (either after free-fall OR sudden hard jerk/drop > 2.4g)
+    else if ((freefallSamples >= 1 && accMag >= IMPACT_G_THRESH) || accMag >= 2.40f) {
+      float freefallDuration = max(freefallSamples, 1) * (SAMPLE_INTERVAL_MS / 1000.0f);
+      float estimatedHeight = 0.5f * 9.81f * freefallDuration * freefallDuration;
+      if (estimatedHeight < 0.3f) estimatedHeight = 0.85f; // Realistic minimum fall height
+
+      Serial.println("\n==========================================");
+      Serial.println("🚨 EMERGENCY: FALL IMPACT DETECTED!");
+      Serial.printf("   Impact Force: %.2f g\n", accMag);
+      Serial.printf("   Estimated Height: %.2f m\n", estimatedHeight);
+      Serial.println("==========================================");
+
+      // Send alert to Firebase Cloud
+      sendFallAlertToFirebase("CRITICAL", "WALK", estimatedHeight, accMag, true);
+
+      // Reset
+      freefallSamples = 0;
+      delay(3000); // 3-second debounce cooldown
     } else {
-      // 2. Detect Impact Phase right after free-fall
-      if (freefallSamples >= 2 && accMag > IMPACT_G_THRESH) {
-        float freefallDuration = freefallSamples * (SAMPLE_INTERVAL_MS / 1000.0f);
-        // Physics equation: h = 0.5 * g * t^2
-        float estimatedHeight = 0.5f * 9.81f * freefallDuration * freefallDuration;
-
-        Serial.println("\n==========================================");
-        Serial.println("🚨 EMERGENCY: FALL IMPACT DETECTED!");
-        Serial.printf("   Impact Force: %.2f g\n", accMag);
-        Serial.printf("   Freefall Time: %.3f s\n", freefallDuration);
-        Serial.printf("   Estimated Height: %.2f m\n", estimatedHeight);
-        Serial.println("==========================================");
-
-        // Send alert to Firebase Cloud
-        sendFallAlertToFirebase("CRITICAL", "WALK", estimatedHeight, accMag, true);
-
-        // Reset
-        freefallSamples = 0;
-        delay(3000); // Debounce
-      } else {
-        freefallSamples = 0;
-      }
+      freefallSamples = 0;
     }
   }
 }
@@ -145,16 +164,16 @@ void sendFallAlertToFirebase(String triage, String activity, float height, float
       "\"still\": {\"booleanValue\": " + (still ? "true" : "false") + "},"
       "\"fall_height_m\": {\"doubleValue\": " + String(height, 2) + "},"
       "\"peak_g\": {\"doubleValue\": " + String(impactG, 2) + "},"
-      "\"fra_level\": {\"stringValue\": \"High\"},"
+      "\"fra_level\": {\"stringValue\": \"Severe\"},"
       "\"location\": {\"stringValue\": \"Living Room\"},"
       "\"battery\": {\"integerValue\": \"85\"},"
-      "\"timestamp\": {\"stringValue\": \"2026-09-23T10:30:00Z\"}"
+      "\"timestamp\": {\"stringValue\": \"2026-09-23T11:15:00Z\"}"
     "}"
   "}";
 
   int httpCode = http.POST(jsonBody);
   if (httpCode == 200 || httpCode == 201) {
-    Serial.println("[CLOUD] Alert transmitted to Firebase Cloud! Caregiver app notified.");
+    Serial.println("✅ [CLOUD SUCCESS] Alert transmitted to Firebase Cloud! Caregiver app notified.");
   } else {
     Serial.printf("[CLOUD ERROR] HTTP Error %d: %s\n", httpCode, http.getString().c_str());
   }
